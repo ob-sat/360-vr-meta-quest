@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0f">
+  <title>360° Immersive Tour — Meta Quest</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+
+  <div id="vr-loading" style="display:none">
+    <div class="spinner"></div>
+    <p>Loading panorama…</p>
+  </div>
+
+  <div id="main-ui">
+    <header>
+      <h1>360° Immersive Tour</h1>
+      <p class="subtitle">Explore office spaces in Meta Quest</p>
+    </header>
+
+    <div id="vr-status" class="status-checking">
+      <span class="status-dot"></span>
+      <span class="status-text">Checking WebXR support…</span>
+    </div>
+
+    <section>
+      <h2>Choose a Space</h2>
+      <div id="scene-grid"></div>
+    </section>
+
+    <div id="enter-vr-section">
+      <button id="enter-vr-btn" disabled>Enter VR</button>
+      <p class="vr-hint" id="vr-hint">
+        Open in <strong>Meta Quest Browser</strong> to enter immersive mode.
+      </p>
+    </div>
+
+    <div class="controls-legend">
+      <h3>Controls</h3>
+      <ul>
+        <li>🎯 <strong>Point + trigger</strong> at a glowing circle to jump to that space</li>
+        <li>✋ <strong>Hold trigger + drag</strong> left/right to look around</li>
+        <li>🕹️ <strong>Thumbstick</strong> left/right to snap-turn 22.5°</li>
+      </ul>
+    </div>
+
+    <a class="orig-link" href="https://saishashang.github.io/" target="_blank" rel="noopener noreferrer">
+      View in standard 360° viewer →
+    </a>
+  </div>
+
+  <script type="module">
+    import { SCENES, checkVRSupport, init, enterVR, attachHotspotFire } from './vr-viewer.js';
+
+    let selectedSceneId = SCENES[0].id;
+
+    // Build scene grid
+    const grid = document.getElementById('scene-grid');
+    for (const scene of SCENES) {
+      const btn = document.createElement('button');
+      btn.className   = 'scene-btn';
+      btn.dataset.id  = scene.id;
+      btn.textContent = scene.label;
+      btn.addEventListener('click', () => {
+        selectedSceneId = scene.id;
+        document.querySelectorAll('.scene-btn').forEach(b =>
+          b.classList.toggle('active', b.dataset.id === scene.id));
+      });
+      grid.appendChild(btn);
+    }
+    document.querySelector('.scene-btn').classList.add('active');
+
+    // WebXR check
+    const statusEl   = document.getElementById('vr-status');
+    const statusText = statusEl.querySelector('.status-text');
+    const enterBtn   = document.getElementById('enter-vr-btn');
+    const hintEl     = document.getElementById('vr-hint');
+
+    const supported = await checkVRSupport();
+    if (supported) {
+      statusEl.className     = 'status-ready';
+      statusText.textContent = 'WebXR ready — immersive VR supported';
+      enterBtn.disabled      = false;
+      hintEl.textContent     = 'Select a space above, then press Enter VR.';
+    } else {
+      statusEl.className  = 'status-unavailable';
+      statusText.textContent = 'WebXR immersive-vr not available';
+      hintEl.innerHTML    = 'Open this page in the <strong>Meta Quest Browser</strong> app.';
+    }
+
+    init();
+
+    enterBtn.addEventListener('click', async () => {
+      enterBtn.disabled = true;
+      try {
+        await enterVR(selectedSceneId, () => {});
+        attachHotspotFire();
+      } catch (err) {
+        alert('Could not start VR session.\n\n' + (err.message ?? err));
+      } finally {
+        enterBtn.disabled = !supported;
+      }
+    });
+  </script>
+
+</body>
+</html>
