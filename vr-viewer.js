@@ -35,8 +35,8 @@ const HOTSPOT_RADIUS = 10; // units from camera
  * Faces that need horizontal UV flip when viewed BackSide: +X, -Y, +Z
  */
 const BOX_FACES = [
-  { name: 'r', flipU: true  },  // +X
-  { name: 'l', flipU: false },  // -X
+  { name: 'l', flipU: true  },  // +X (l/r swapped — confirmed by testing)
+  { name: 'r', flipU: false },  // -X
   { name: 'u', flipU: false },  // +Y
   { name: 'd', flipU: true  },  // -Y
   { name: 'f', flipU: true  },  // +Z
@@ -356,10 +356,19 @@ export async function enterVR(initialSceneId, _onSceneChange) {
     buildHotspots(prev, next);
     setLoading(false);
 
-    // ── Controller drag rotation ─────────────────────────────────────────────
+    // ── Controller drag rotation OR hotspot fire (mutually exclusive) ────────
+    // If the controller ray is currently hitting a hotspot → switch scene.
+    // Otherwise → start drag-to-rotate.
     xrSession.addEventListener('selectstart', e => {
-      dragging  = e.inputSource;
-      lastGripX = null;
+      const hit = window.__xrHitHotspot;
+      if (hit && hit.inputSource === e.inputSource) {
+        // Pointing at a hotspot — switch scene, do NOT start drag
+        switchToScene(hit.group.userData.sceneIndex);
+      } else {
+        // Not pointing at hotspot — begin drag rotation
+        dragging  = e.inputSource;
+        lastGripX = null;
+      }
     });
     xrSession.addEventListener('selectend', e => {
       if (dragging === e.inputSource) { dragging = null; lastGripX = null; }
@@ -461,16 +470,6 @@ function handleXRFrame(frame) {
   window.__xrHitHotspot = hitHotspot;
 }
 
-// Attach hotspot fire handler after session starts (fires once per click)
-function attachHotspotFire() {
-  xrSession?.addEventListener('selectstart', () => {
-    const hit = window.__xrHitHotspot;
-    if (hit) {
-      const idx = hit.group.userData.sceneIndex;
-      switchToScene(idx);
-    }
-  });
-}
-
-// Re-export so index.html can call after enterVR
-export { attachHotspotFire };
+// attachHotspotFire is no longer needed — hotspot detection is
+// merged into the selectstart handler inside enterVR().
+export function attachHotspotFire() { /* no-op, kept for API compatibility */ }
