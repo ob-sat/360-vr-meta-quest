@@ -36,11 +36,11 @@ const HOTSPOT_RADIUS = 10; // units from camera
  */
 const BOX_FACES = [
   { name: 'l', flipU: true  },  // +X (l/r swapped — confirmed by testing)
-  { name: 'r', flipU: false },  // -X
+  { name: 'r', flipU: true  },  // -X
   { name: 'u', flipU: false },  // +Y
   { name: 'd', flipU: true  },  // -Y
   { name: 'f', flipU: true  },  // +Z
-  { name: 'b', flipU: false },  // -Z
+  { name: 'b', flipU: true  },  // -Z
 ];
 
 // ─── Scene list ───────────────────────────────────────────────────────────────
@@ -76,7 +76,9 @@ let dragging    = null;       // XRInputSource currently held
 let lastGripX   = null;
 let snapCooldown = false;
 
-// Raycaster for hotspot selection
+// Controller raycasting
+let hoveredHotspot = null;    // currently highlighted hotspot group
+let controllers    = [];      // THREE.Group[] from renderer.xr.getController(i)
 const raycaster = new THREE.Raycaster();
 
 // ─── Tile helpers ─────────────────────────────────────────────────────────────
@@ -236,7 +238,7 @@ function buildHotspots(prevIndex, nextIndex) {
 
     // Outer glow ring
     const outerRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.28, 0.36, 48),
+      new THREE.RingGeometry(0.35, 0.50, 48),
       new THREE.MeshBasicMaterial({
         color: 0x5e9eff, side: THREE.DoubleSide,
         transparent: true, opacity: 0.5, depthWrite: false,
@@ -245,7 +247,7 @@ function buildHotspots(prevIndex, nextIndex) {
 
     // Inner white ring
     const innerRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.18, 0.26, 48),
+      new THREE.RingGeometry(0.22, 0.34, 48),
       new THREE.MeshBasicMaterial({
         color: 0xffffff, side: THREE.DoubleSide,
         transparent: true, opacity: 0.9, depthWrite: false,
@@ -254,7 +256,7 @@ function buildHotspots(prevIndex, nextIndex) {
 
     // Arrow disc
     const disc = new THREE.Mesh(
-      new THREE.CircleGeometry(0.14, 32),
+      new THREE.CircleGeometry(0.18, 32),
       new THREE.MeshBasicMaterial({
         color: 0x5e9eff, side: THREE.DoubleSide,
         transparent: true, opacity: 0.7, depthWrite: false,
@@ -270,7 +272,7 @@ function buildHotspots(prevIndex, nextIndex) {
 
     // Label above the ring
     const sprite = makeLabel(label);
-    sprite.position.set(0, 0.55, 0);
+    sprite.position.set(0, 0.75, 0);
     group.add(sprite);
 
     hotspotGroup.add(group);
@@ -326,8 +328,40 @@ export function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
+  const _tempMatrix = new THREE.Matrix4();
+
   renderer.setAnimationLoop((time, frame) => {
     if (frame) handleXRFrame(frame);
+
+    // Controller-based hotspot raycasting (runs every frame when in XR)
+    if (controllers.length && hotspotGroup) {
+      hotspotGroup.children.forEach(g => g.scale.setScalar(1));
+      let newHovered = null;
+      for (const ctrl of controllers) {
+        _tempMatrix.identity().extractRotation(ctrl.matrixWorld);
+        raycaster.ray.origin.setFromMatrixPosition(ctrl.matrixWorld);
+        raycaster.ray.direction.set(0, 0, -1).applyMatrix4(_tempMatrix);
+        const targets = hotspotGroup.children.flatMap(g =>
+          g.children.filter(c => c.isMesh)
+        );
+        const hits = raycaster.intersectObjects(targets, false);
+        if (hits.length && hits[0].distance < 20) {
+          newHovered = hits[0].object.parent;
+          newHovered.scale.setScalar(1.25);
+          ctrl.userData.rayLine?.geometry.setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, 0, -hits[0].distance),
+          ]);
+        } else {
+          ctrl.userData.rayLine?.geometry.setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, 0, -15),
+          ]);
+        }
+      }
+      hoveredHotspot = newHovered;
+    }
+
     renderer.render(threeScene, camera);
   });
 }
@@ -356,16 +390,31 @@ export async function enterVR(initialSceneId, _onSceneChange) {
     buildHotspots(prev, next);
     setLoading(false);
 
-    // ── Controller drag rotation OR hotspot fire (mutually exclusive) ────────
-    // If the controller ray is currently hitting a hotspot → switch scene.
-    // Otherwise → start drag-to-rotate.
+    // ── Set up controllers with visible ray lines ────────────────────────────
+    controllers = [0, 1].map(i => {
+      const ctrl = renderer.xr.getController(i);
+      const rayLine = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(0, 0, -15),
+        ]),
+        new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2, transparent: true, opacity: 0.6 })
+      );
+      ctrl.add(rayLine);
+      ctrl.userData.rayLine = rayLine;
+      threeScene.add(ctrl);
+
+      // Hotspot fire — runs on controller object, so hoveredHotspot is always current
+      ctrl.addEventListener('selectstart', () => {
+        if (hoveredHotspot) switchToScene(hoveredHotspot.userData.sceneIndex);
+      });
+
+      return ctrl;
+    });
+
+    // Session-level selectstart → drag rotation (hotspot fire handled per-controller above)
     xrSession.addEventListener('selectstart', e => {
-      const hit = window.__xrHitHotspot;
-      if (hit && hit.inputSource === e.inputSource) {
-        // Pointing at a hotspot — switch scene, do NOT start drag
-        switchToScene(hit.group.userData.sceneIndex);
-      } else {
-        // Not pointing at hotspot — begin drag rotation
+      if (!hoveredHotspot) {
         dragging  = e.inputSource;
         lastGripX = null;
       }
@@ -375,9 +424,12 @@ export async function enterVR(initialSceneId, _onSceneChange) {
     });
 
     xrSession.addEventListener('end', () => {
-      xrSession    = null;
-      dragging     = null;
-      lastGripX    = null;
+      xrSession      = null;
+      dragging       = null;
+      lastGripX      = null;
+      hoveredHotspot = null;
+      controllers.forEach(c => threeScene.remove(c));
+      controllers    = [];
       disposeSkybox(skyboxMesh); skyboxMesh = null;
       if (hotspotGroup) { threeScene.remove(hotspotGroup); hotspotGroup = null; }
       setLoading(false);
@@ -424,50 +476,6 @@ function handleXRFrame(frame) {
     }
   }
 
-  // ── 3. Hotspot raycasting ─────────────────────────────────────────────────
-  if (!hotspotGroup) return;
-
-  // Reset all hotspot highlights
-  hotspotGroup.children.forEach(g => {
-    g.children.forEach(c => {
-      if (c.material && !c.isSprite) {
-        c.material.opacity = c.geometry.type === 'RingGeometry'
-          ? (c.material.color.getHex() === 0x5e9eff ? 0.5 : 0.9)
-          : 0.7;
-        c.scale.setScalar(1);
-      }
-    });
-    g.scale.setScalar(1);
-  });
-
-  let hitHotspot = null;
-
-  for (const src of xrSession.inputSources) {
-    if (!src.targetRaySpace) continue;
-    const rayPose = frame.getPose(src.targetRaySpace, refSpace);
-    if (!rayPose) continue;
-
-    const m = rayPose.transform.matrix;
-    const origin = new THREE.Vector3(m[12], m[13], m[14]);
-    // Forward direction from the ray transform (-Z in local space → col 2 of matrix)
-    const dir = new THREE.Vector3(-m[8], -m[9], -m[10]).normalize();
-
-    raycaster.set(origin, dir);
-    const hits = raycaster.intersectObjects(
-      hotspotGroup.children.flatMap(g => g.children.filter(c => !c.isSprite)),
-      false
-    );
-
-    if (hits.length) {
-      const hotspotGroup_ = hits[0].object.parent;
-      hotspotGroup_.scale.setScalar(1.2);
-      hitHotspot = { inputSource: src, group: hotspotGroup_ };
-    }
-  }
-
-  // Fire on selectstart if pointing at hotspot
-  // (handled via separate event below — stored reference)
-  window.__xrHitHotspot = hitHotspot;
 }
 
 // attachHotspotFire is no longer needed — hotspot detection is
