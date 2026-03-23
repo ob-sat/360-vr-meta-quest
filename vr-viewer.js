@@ -30,7 +30,7 @@ const HOTSPOT_RADIUS = 10;
 const BOX_FACES = [
   { name: 'l', flipU: true,  rotate:   0 },  // +X
   { name: 'r', flipU: true,  rotate:   0 },  // -X
-  { name: 'u', flipU: false, rotate: 270 },  // +Y  ← rotated to fix alignment
+  { name: 'u', flipU: false, rotate: 180 },  // +Y  ← rotated to fix alignment
   { name: 'd', flipU: true,  rotate:   0 },  // -Y
   { name: 'f', flipU: true,  rotate:   0 },  // +Z
   { name: 'b', flipU: true,  rotate:   0 },  // -Z
@@ -152,9 +152,10 @@ function loadFace(sceneId, faceName, flipU, rotateDeg) {
 
             const tex = new THREE.CanvasTexture(canvas);
             tex.colorSpace      = THREE.SRGBColorSpace;
-            tex.minFilter       = THREE.LinearMipmapLinearFilter;
-            tex.generateMipmaps = true;
-            tex.anisotropy      = renderer.capabilities.getMaxAnisotropy();
+            tex.minFilter       = THREE.LinearFilter;
+            tex.generateMipmaps = false;
+            tex.wrapS           = THREE.ClampToEdgeWrapping;
+            tex.wrapT           = THREE.ClampToEdgeWrapping;
             if (flipU) {
               tex.wrapS    = THREE.RepeatWrapping;
               tex.repeat.x = -1;
