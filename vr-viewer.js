@@ -16,7 +16,7 @@ import * as THREE from 'three';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TILE_BASE  = 'https://saishashang.github.io/tiles/';
+const TILE_BASE  = 'https://ob-sat.github.io/360-vr-meta-quest/tiles/';
 const TILE_LEVEL = 2;       // 1024px faces (2×2 tiles each)
 const TILE_COLS  = 2;       // tiles per face row/col at level 2
 const SKYBOX_SIZE = 900;
@@ -46,21 +46,12 @@ const BOX_FACES = [
 // ─── Scene list ───────────────────────────────────────────────────────────────
 
 export const SCENES = [
-  { id: '0-reception01',  label: 'Reception 01' },
-  { id: '1-reception02',  label: 'Reception 02' },
-  { id: '2-side01',       label: 'Side 01' },
-  { id: '3-side02',       label: 'Side 02' },
-  { id: '4-dh02',         label: 'Dining Hall 02' },
-  { id: '5-dh03',         label: 'Dining Hall 03' },
-  { id: '6-mf',           label: 'Medical Facility' },
-  { id: '7-mr01',         label: 'Meeting Room 01' },
-  { id: '8-mr02',         label: 'Meeting Room 02' },
-  { id: '9-mr03',         label: 'Meeting Room 03' },
-  { id: '10-mr04',        label: 'Meeting Room 04' },
-  { id: '11-panm40002',   label: 'PANM 40002' },
-  { id: '12-phonebooth',  label: 'Phone Booth' },
-  { id: '13-ca01',        label: 'CA 01' },
-  { id: '14-dh01',        label: 'Dining Hall 01' },
+  { id: '0-reception-1',         label: 'Reception 1' },
+  { id: '1-recruitment-zone-1',  label: 'Recruitment Zone 1' },
+  { id: '2-recruitment-zone-2',  label: 'Recruitment Zone 2' },
+  { id: '3-reception-2',         label: 'Reception 2' },
+  { id: '4-visitor-lounge-1',    label: 'Visitor Lounge 1' },
+  { id: '5-visitor-lounge-2',    label: 'Visitor Lounge 2' },
 ];
 
 // ─── Internal state ───────────────────────────────────────────────────────────
