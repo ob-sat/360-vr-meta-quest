@@ -404,15 +404,17 @@ export async function enterVR(initialSceneId, _onSceneChange) {
       ctrl.userData.rayLine = rayLine;
       threeScene.add(ctrl);
 
+      // Hotspot fire — runs on controller object, so hoveredHotspot is always current
+      ctrl.addEventListener('selectstart', () => {
+        if (hoveredHotspot) switchToScene(hoveredHotspot.userData.sceneIndex);
+      });
+
       return ctrl;
     });
 
-    // Session-level selectstart → hotspot fire OR drag rotation
-    // Using session-level (not per-controller) so it reliably fires for both controllers
+    // Session-level selectstart → drag rotation (hotspot fire handled per-controller above)
     xrSession.addEventListener('selectstart', e => {
-      if (hoveredHotspot) {
-        switchToScene(hoveredHotspot.userData.sceneIndex);
-      } else {
+      if (!hoveredHotspot) {
         dragging  = e.inputSource;
         lastGripX = null;
       }
