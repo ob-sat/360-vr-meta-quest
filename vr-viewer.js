@@ -30,7 +30,7 @@ const HOTSPOT_RADIUS = 10;
 const BOX_FACES = [
   { name: 'l', flipU: true,  rotate:   0 },  // +X
   { name: 'r', flipU: true,  rotate:   0 },  // -X
-  { name: 'u', flipU: false, rotate:  90 },  // +Y  ← rotated to fix alignment
+  { name: 'u', flipU: false, rotate: 270 },  // +Y  ← rotated to fix alignment
   { name: 'd', flipU: true,  rotate:   0 },  // -Y
   { name: 'f', flipU: true,  rotate:   0 },  // +Z
   { name: 'b', flipU: true,  rotate:   0 },  // -Z
@@ -151,9 +151,10 @@ function loadFace(sceneId, faceName, flipU, rotateDeg) {
             }
 
             const tex = new THREE.CanvasTexture(canvas);
-            tex.colorSpace    = THREE.SRGBColorSpace;
-            tex.minFilter     = THREE.LinearFilter;
-            tex.generateMipmaps = false;
+            tex.colorSpace      = THREE.SRGBColorSpace;
+            tex.minFilter       = THREE.LinearMipmapLinearFilter;
+            tex.generateMipmaps = true;
+            tex.anisotropy      = renderer.capabilities.getMaxAnisotropy();
             if (flipU) {
               tex.wrapS    = THREE.RepeatWrapping;
               tex.repeat.x = -1;
@@ -259,8 +260,9 @@ function buildHotspots(sceneIndex) {
     const targetIndex = SCENES.findIndex(s => s.id === targetId);
     if (targetIndex < 0) return;
 
-    // Marzipano: pitch > 0 = looking down; our elevation: positive = up
-    const pos = angleToPosition(yawRad, -pitchRad, HOTSPOT_RADIUS);
+    // Marzipano yaw is CCW from above; our system is CW → negate yaw
+    // Marzipano pitch > 0 = looking down; our elevation: positive = up → negate pitch
+    const pos = angleToPosition(-yawRad, -pitchRad, HOTSPOT_RADIUS);
 
     const outerRing = new THREE.Mesh(
       new THREE.RingGeometry(0.35, 0.50, 48),
@@ -438,7 +440,7 @@ function handleXRFrame(frame) {
       const x = pose.transform.position.x;
       if (lastGripX !== null) {
         const dx = x - lastGripX;
-        if (Math.abs(dx) > 0.001) snapTurn(-dx * 140);
+        if (Math.abs(dx) > 0.001) snapTurn(dx * 140);
       }
       lastGripX = x;
     }
