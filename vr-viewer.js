@@ -8,7 +8,7 @@
  *   Snap turn        → thumbstick horizontal (left/right, 22.5° per step)
  *   Switch space     → point controller at a glowing ring hotspot → pull trigger
  *
- * Tile source: https://saishashang.github.io/tiles/{sceneId}/{level}/{face}/{row}/{col}.jpg
+ * Tile source: https://ob-sat.github.io/360-vr-meta-quest/tiles/{sceneId}/{level}/{face}/{row}/{col}.jpg
  * Level 2 = 1024px per face, 2×2 tiles per face (24 total requests per scene).
  */
 
@@ -16,60 +16,92 @@ import * as THREE from 'three';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TILE_BASE  = 'https://ob-sat.github.io/360-vr-meta-quest/tiles/';
-const TILE_LEVEL = 2;       // 1024px faces (2×2 tiles each)
-const TILE_COLS  = 2;       // tiles per face row/col at level 2
+const TILE_BASE   = 'https://ob-sat.github.io/360-vr-meta-quest/tiles/';
+const TILE_LEVEL  = 2;
+const TILE_COLS   = 2;
 const SKYBOX_SIZE = 900;
-const HOTSPOT_RADIUS = 10; // units from camera
+const HOTSPOT_RADIUS = 10;
 
 /**
- * BoxGeometry face order: [+X, -X, +Y, -Y, +Z, -Z]
- * Mapping to Marzipano face names (viewed from inside the box):
- *   +X = right  → 'r'
- *   -X = left   → 'l'
- *   +Y = up     → 'u'
- *   -Y = down   → 'd'
- *   +Z = front  → 'f'  (camera looks toward +Z from inside)
- *   -Z = back   → 'b'
- *
- * Faces that need horizontal UV flip when viewed BackSide: +X, -Y, +Z
+ * BoxGeometry face slot order: [+X, -X, +Y, -Y, +Z, -Z]
+ * flipU  — horizontal mirror for BackSide rendering
+ * rotate — CW rotation in degrees applied to assembled tile canvas (0, 90, 180, 270)
  */
 const BOX_FACES = [
-  { name: 'l', flipU: true  },  // +X (l/r swapped — confirmed by testing)
-  { name: 'r', flipU: true  },  // -X
-  { name: 'u', flipU: false },  // +Y
-  { name: 'd', flipU: true  },  // -Y
-  { name: 'f', flipU: true  },  // +Z
-  { name: 'b', flipU: true  },  // -Z
+  { name: 'l', flipU: true,  rotate:   0 },  // +X
+  { name: 'r', flipU: true,  rotate:   0 },  // -X
+  { name: 'u', flipU: false, rotate:  90 },  // +Y  ← rotated to fix alignment
+  { name: 'd', flipU: true,  rotate:   0 },  // -Y
+  { name: 'f', flipU: true,  rotate:   0 },  // +Z
+  { name: 'b', flipU: true,  rotate:   0 },  // -Z
 ];
 
-// ─── Scene list ───────────────────────────────────────────────────────────────
+// ─── Scene list (with Marzipano hotspot positions) ────────────────────────────
 
 export const SCENES = [
-  { id: '0-reception-1',         label: 'Reception 1' },
-  { id: '1-recruitment-zone-1',  label: 'Recruitment Zone 1' },
-  { id: '2-recruitment-zone-2',  label: 'Recruitment Zone 2' },
-  { id: '3-reception-2',         label: 'Reception 2' },
-  { id: '4-visitor-lounge-1',    label: 'Visitor Lounge 1' },
-  { id: '5-visitor-lounge-2',    label: 'Visitor Lounge 2' },
+  {
+    id: '0-reception-1', label: 'Reception 1',
+    hotspots: [
+      { targetId: '1-recruitment-zone-1', yawRad:  0.8554, pitchRad: 0.0366 },
+      { targetId: '3-reception-2',        yawRad:  2.4088, pitchRad: 0.0355 },
+    ],
+  },
+  {
+    id: '1-recruitment-zone-1', label: 'Recruitment Zone 1',
+    hotspots: [
+      { targetId: '0-reception-1',        yawRad:  1.6875, pitchRad: 0.0256 },
+      { targetId: '2-recruitment-zone-2', yawRad:  0.1857, pitchRad: 0.0454 },
+    ],
+  },
+  {
+    id: '2-recruitment-zone-2', label: 'Recruitment Zone 2',
+    hotspots: [
+      { targetId: '1-recruitment-zone-1', yawRad:  0.0394, pitchRad: 0.0621 },
+      { targetId: '3-reception-2',        yawRad: -1.7472, pitchRad: 0.0915 },
+    ],
+  },
+  {
+    id: '3-reception-2', label: 'Reception 2',
+    hotspots: [
+      { targetId: '2-recruitment-zone-2', yawRad:  0.6345, pitchRad: 0.0673 },
+      { targetId: '0-reception-1',        yawRad: -0.9778, pitchRad: 0.0554 },
+      { targetId: '4-visitor-lounge-1',   yawRad:  2.1644, pitchRad: 0.1048 },
+    ],
+  },
+  {
+    id: '4-visitor-lounge-1', label: 'Visitor Lounge 1',
+    hotspots: [
+      { targetId: '5-visitor-lounge-2',   yawRad:  0.9352, pitchRad: 0.0574 },
+      { targetId: '3-reception-2',        yawRad: -2.2298, pitchRad: 0.0763 },
+    ],
+  },
+  {
+    id: '5-visitor-lounge-2', label: 'Visitor Lounge 2',
+    hotspots: [
+      { targetId: '4-visitor-lounge-1',   yawRad: -0.2248, pitchRad: 0.0609 },
+    ],
+  },
 ];
 
 // ─── Internal state ───────────────────────────────────────────────────────────
 
 let renderer, threeScene, camera;
-let xrSession   = null;
-let skyboxMesh  = null;       // current skybox THREE.Mesh
-let hotspotGroup = null;      // THREE.Group holding the two ring hotspots
+let xrSession    = null;
+let skyboxMesh   = null;
+let hotspotGroup = null;
 let currentSceneIndex = 0;
 
-// Controller drag state
-let dragging    = null;       // XRInputSource currently held
-let lastGripX   = null;
+// Drag state
+let dragging     = null;
+let lastGripX    = null;
 let snapCooldown = false;
 
-// Controller raycasting
-let hoveredHotspot = null;    // currently highlighted hotspot group
-let controllers    = [];      // THREE.Group[] from renderer.xr.getController(i)
+// Per-source hover map — keyed by XRInputSource, value is hovered hotspot Group
+const hoveredBySource = new Map();
+
+// World-space ray lines (one per input source slot, updated via XRFrame pose)
+let rayLines = [];
+
 const raycaster = new THREE.Raycaster();
 
 // ─── Tile helpers ─────────────────────────────────────────────────────────────
@@ -79,17 +111,20 @@ function tileUrl(sceneId, face, row, col) {
 }
 
 /**
- * Load a single cube face by stitching TILE_COLS × TILE_COLS tiles onto a canvas.
- * Returns a Promise<THREE.CanvasTexture>.
+ * Stitch TILE_COLS×TILE_COLS tiles into a canvas, apply optional CW rotation,
+ * then return a THREE.CanvasTexture.
  */
-function loadFace(sceneId, faceName, flipU) {
+function loadFace(sceneId, faceName, flipU, rotateDeg) {
   return new Promise((resolve, reject) => {
     const n    = TILE_COLS;
-    const size = 512 * n; // 1024 at level 2
-    const canvas = document.createElement('canvas');
-    canvas.width  = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
+    const size = 512 * n;
+
+    // Assemble tiles into a temp canvas first
+    const tileCanvas = document.createElement('canvas');
+    tileCanvas.width  = size;
+    tileCanvas.height = size;
+    const tileCtx = tileCanvas.getContext('2d');
+
     let loaded = 0;
     const total = n * n;
 
@@ -98,17 +133,31 @@ function loadFace(sceneId, faceName, flipU) {
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
-          ctx.drawImage(img, col * 512, row * 512, 512, 512);
+          tileCtx.drawImage(img, col * 512, row * 512, 512, 512);
           loaded++;
           if (loaded === total) {
+            // Build final canvas with optional rotation
+            const canvas = document.createElement('canvas');
+            canvas.width  = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            if (rotateDeg) {
+              ctx.translate(size / 2, size / 2);
+              ctx.rotate(rotateDeg * Math.PI / 180);
+              ctx.drawImage(tileCanvas, -size / 2, -size / 2);
+            } else {
+              ctx.drawImage(tileCanvas, 0, 0);
+            }
+
             const tex = new THREE.CanvasTexture(canvas);
-            tex.colorSpace = THREE.SRGBColorSpace;
-            tex.minFilter  = THREE.LinearFilter;
+            tex.colorSpace    = THREE.SRGBColorSpace;
+            tex.minFilter     = THREE.LinearFilter;
             tex.generateMipmaps = false;
             if (flipU) {
               tex.wrapS    = THREE.RepeatWrapping;
               tex.repeat.x = -1;
-              tex.offset.x = 1;
+              tex.offset.x =  1;
             }
             resolve(tex);
           }
@@ -120,13 +169,9 @@ function loadFace(sceneId, faceName, flipU) {
   });
 }
 
-/**
- * Load all 6 faces in parallel and build a BoxGeometry skybox mesh.
- * Returns Promise<THREE.Mesh>.
- */
 async function buildSkybox(sceneId) {
   const textures = await Promise.all(
-    BOX_FACES.map(({ name, flipU }) => loadFace(sceneId, name, flipU))
+    BOX_FACES.map(({ name, flipU, rotate }) => loadFace(sceneId, name, flipU, rotate))
   );
   const geometry  = new THREE.BoxGeometry(SKYBOX_SIZE, SKYBOX_SIZE, SKYBOX_SIZE);
   const materials = textures.map(tex =>
@@ -135,9 +180,6 @@ async function buildSkybox(sceneId) {
   return new THREE.Mesh(geometry, materials);
 }
 
-/**
- * Dispose an old skybox mesh and all its textures.
- */
 function disposeSkybox(mesh) {
   if (!mesh) return;
   mesh.material.forEach(m => { m.map?.dispose(); m.dispose(); });
@@ -168,22 +210,14 @@ function snapTurn(angleDeg) {
 
 // ─── Hotspots ─────────────────────────────────────────────────────────────────
 
-/**
- * Convert yaw (degrees from forward) + elevation to a world-space Vector3.
- */
-function angleToPosition(yawDeg, elevDeg, radius) {
-  const y = THREE.MathUtils.degToRad(yawDeg);
-  const e = THREE.MathUtils.degToRad(elevDeg);
+function angleToPosition(yawRad, elevRad, radius) {
   return new THREE.Vector3(
-    Math.sin(y) * Math.cos(e) * radius,
-    Math.sin(e) * radius,
-    Math.cos(y) * Math.cos(e) * radius
+    Math.sin(yawRad) * Math.cos(elevRad) * radius,
+    Math.sin(elevRad) * radius,
+    Math.cos(yawRad) * Math.cos(elevRad) * radius
   );
 }
 
-/**
- * Create a sprite label with the scene name.
- */
 function makeLabel(text) {
   const canvas = document.createElement('canvas');
   canvas.width  = 512;
@@ -197,72 +231,58 @@ function makeLabel(text) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, canvas.width / 2, canvas.height / 2);
-  const tex     = new THREE.CanvasTexture(canvas);
-  const mat     = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
-  const sprite  = new THREE.Sprite(mat);
+  const tex    = new THREE.CanvasTexture(canvas);
+  const mat    = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  const sprite = new THREE.Sprite(mat);
   sprite.scale.set(1.8, 0.45, 1);
   return sprite;
 }
 
 /**
- * Build (or rebuild) the two navigation hotspot rings.
- * prevIndex / nextIndex are indices into SCENES.
+ * Build hotspots for sceneIndex using the spatial positions from Marzipano data.
  */
-function buildHotspots(prevIndex, nextIndex) {
+function buildHotspots(sceneIndex) {
   if (hotspotGroup) {
-    hotspotGroup.children.forEach(c => {
-      if (c.material) { c.material.map?.dispose(); c.material.dispose(); }
-      if (c.geometry) c.geometry.dispose();
+    hotspotGroup.children.forEach(g => {
+      g.children.forEach(c => {
+        if (c.material) { c.material.map?.dispose(); c.material.dispose(); }
+        if (c.geometry) c.geometry.dispose();
+      });
     });
     threeScene.remove(hotspotGroup);
   }
 
   hotspotGroup = new THREE.Group();
 
-  const defs = [
-    { sceneIdx: prevIndex, yaw: -70, label: SCENES[prevIndex].label, dir: 'prev' },
-    { sceneIdx: nextIndex, yaw:  70, label: SCENES[nextIndex].label, dir: 'next' },
-  ];
+  const scene = SCENES[sceneIndex];
+  scene.hotspots.forEach(({ targetId, yawRad, pitchRad }) => {
+    const targetIndex = SCENES.findIndex(s => s.id === targetId);
+    if (targetIndex < 0) return;
 
-  defs.forEach(({ sceneIdx, yaw, label }) => {
-    const pos = angleToPosition(yaw, 0, HOTSPOT_RADIUS);
+    // Marzipano: pitch > 0 = looking down; our elevation: positive = up
+    const pos = angleToPosition(yawRad, -pitchRad, HOTSPOT_RADIUS);
 
-    // Outer glow ring
     const outerRing = new THREE.Mesh(
       new THREE.RingGeometry(0.35, 0.50, 48),
-      new THREE.MeshBasicMaterial({
-        color: 0x5e9eff, side: THREE.DoubleSide,
-        transparent: true, opacity: 0.5, depthWrite: false,
-      })
+      new THREE.MeshBasicMaterial({ color: 0x5e9eff, side: THREE.DoubleSide, transparent: true, opacity: 0.5, depthWrite: false })
     );
-
-    // Inner white ring
     const innerRing = new THREE.Mesh(
       new THREE.RingGeometry(0.22, 0.34, 48),
-      new THREE.MeshBasicMaterial({
-        color: 0xffffff, side: THREE.DoubleSide,
-        transparent: true, opacity: 0.9, depthWrite: false,
-      })
+      new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthWrite: false })
     );
-
-    // Arrow disc
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(0.18, 32),
-      new THREE.MeshBasicMaterial({
-        color: 0x5e9eff, side: THREE.DoubleSide,
-        transparent: true, opacity: 0.7, depthWrite: false,
-      })
+      new THREE.MeshBasicMaterial({ color: 0x5e9eff, side: THREE.DoubleSide, transparent: true, opacity: 0.7, depthWrite: false })
     );
 
     const group = new THREE.Group();
     group.add(outerRing, innerRing, disc);
     group.position.copy(pos);
-    group.lookAt(0, 0, 0);          // face the centre (camera)
-    group.userData.sceneIndex = sceneIdx;
+    group.lookAt(0, 0, 0);
+    group.userData.sceneIndex = targetIndex;
     group.userData.isHotspot  = true;
 
-    // Label above the ring
-    const sprite = makeLabel(label);
+    const sprite = makeLabel(SCENES[targetIndex].label);
     sprite.position.set(0, 0.75, 0);
     group.add(sprite);
 
@@ -283,10 +303,7 @@ async function switchToScene(index) {
     disposeSkybox(skyboxMesh);
     skyboxMesh = newMesh;
     threeScene.add(skyboxMesh);
-    // Rebuild hotspots for new scene
-    const prev = (index - 1 + SCENES.length) % SCENES.length;
-    const next = (index + 1) % SCENES.length;
-    buildHotspots(prev, next);
+    buildHotspots(index);
   } catch (err) {
     console.error('[VRViewer] switchToScene failed:', err);
   } finally {
@@ -319,40 +336,8 @@ export function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  const _tempMatrix = new THREE.Matrix4();
-
   renderer.setAnimationLoop((time, frame) => {
     if (frame) handleXRFrame(frame);
-
-    // Controller-based hotspot raycasting (runs every frame when in XR)
-    if (controllers.length && hotspotGroup) {
-      hotspotGroup.children.forEach(g => g.scale.setScalar(1));
-      let newHovered = null;
-      for (const ctrl of controllers) {
-        _tempMatrix.identity().extractRotation(ctrl.matrixWorld);
-        raycaster.ray.origin.setFromMatrixPosition(ctrl.matrixWorld);
-        raycaster.ray.direction.set(0, 0, -1).applyMatrix4(_tempMatrix);
-        const targets = hotspotGroup.children.flatMap(g =>
-          g.children.filter(c => c.isMesh)
-        );
-        const hits = raycaster.intersectObjects(targets, false);
-        if (hits.length && hits[0].distance < 20) {
-          newHovered = hits[0].object.parent;
-          newHovered.scale.setScalar(1.25);
-          ctrl.userData.rayLine?.geometry.setFromPoints([
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(0, 0, -hits[0].distance),
-          ]);
-        } else {
-          ctrl.userData.rayLine?.geometry.setFromPoints([
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(0, 0, -15),
-          ]);
-        }
-      }
-      hoveredHotspot = newHovered;
-    }
-
     renderer.render(threeScene, camera);
   });
 }
@@ -362,7 +347,6 @@ export async function enterVR(initialSceneId, _onSceneChange) {
   currentSceneIndex = idx >= 0 ? idx : 0;
 
   try {
-    // Must call requestSession before any other await (user gesture window)
     xrSession = await navigator.xr.requestSession('immersive-vr', {
       requiredFeatures: ['local'],
       optionalFeatures: ['hand-tracking'],
@@ -370,42 +354,35 @@ export async function enterVR(initialSceneId, _onSceneChange) {
     renderer.xr.setReferenceSpaceType('local');
     await renderer.xr.setSession(xrSession);
 
-    // Session live — load initial panorama
     setLoading(true);
     const mesh = await buildSkybox(SCENES[currentSceneIndex].id);
     skyboxMesh = mesh;
     threeScene.add(skyboxMesh);
-
-    const prev = (currentSceneIndex - 1 + SCENES.length) % SCENES.length;
-    const next = (currentSceneIndex + 1) % SCENES.length;
-    buildHotspots(prev, next);
+    buildHotspots(currentSceneIndex);
     setLoading(false);
 
-    // ── Set up controllers with visible ray lines ────────────────────────────
-    controllers = [0, 1].map(i => {
-      const ctrl = renderer.xr.getController(i);
-      const rayLine = new THREE.Line(
+    // ── World-space ray lines (updated each frame via XRFrame pose) ──────────
+    // Using 2 slots; one per potential input source. Not parented to Three.js
+    // controller groups — avoids index-mapping issues entirely.
+    rayLines = [0, 1].map(() => {
+      const line = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints([
           new THREE.Vector3(0, 0, 0),
           new THREE.Vector3(0, 0, -15),
         ]),
-        new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2, transparent: true, opacity: 0.6 })
+        new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 })
       );
-      ctrl.add(rayLine);
-      ctrl.userData.rayLine = rayLine;
-      threeScene.add(ctrl);
-
-      // Hotspot fire — runs on controller object, so hoveredHotspot is always current
-      ctrl.addEventListener('selectstart', () => {
-        if (hoveredHotspot) switchToScene(hoveredHotspot.userData.sceneIndex);
-      });
-
-      return ctrl;
+      threeScene.add(line);
+      return line;
     });
 
-    // Session-level selectstart → drag rotation (hotspot fire handled per-controller above)
+    // ── Session-level selectstart ────────────────────────────────────────────
+    // hoveredBySource is keyed by XRInputSource — exact same object as e.inputSource
     xrSession.addEventListener('selectstart', e => {
-      if (!hoveredHotspot) {
+      const hovered = hoveredBySource.get(e.inputSource);
+      if (hovered) {
+        switchToScene(hovered.userData.sceneIndex);
+      } else {
         dragging  = e.inputSource;
         lastGripX = null;
       }
@@ -415,12 +392,12 @@ export async function enterVR(initialSceneId, _onSceneChange) {
     });
 
     xrSession.addEventListener('end', () => {
-      xrSession      = null;
-      dragging       = null;
-      lastGripX      = null;
-      hoveredHotspot = null;
-      controllers.forEach(c => threeScene.remove(c));
-      controllers    = [];
+      xrSession  = null;
+      dragging   = null;
+      lastGripX  = null;
+      hoveredBySource.clear();
+      rayLines.forEach(l => threeScene.remove(l));
+      rayLines   = [];
       disposeSkybox(skyboxMesh); skyboxMesh = null;
       if (hotspotGroup) { threeScene.remove(hotspotGroup); hotspotGroup = null; }
       setLoading(false);
@@ -467,8 +444,54 @@ function handleXRFrame(frame) {
     }
   }
 
+  // ── 3. Hotspot raycasting + ray line update ────────────────────────────────
+  if (!hotspotGroup) return;
+
+  hotspotGroup.children.forEach(g => g.scale.setScalar(1));
+  hoveredBySource.clear();
+
+  const targets = hotspotGroup.children.flatMap(g => g.children.filter(c => c.isMesh));
+  let srcIdx = 0;
+
+  for (const src of xrSession.inputSources) {
+    const rayLine = rayLines[srcIdx];
+    srcIdx++;
+
+    if (!src.targetRaySpace) continue;
+    const rayPose = frame.getPose(src.targetRaySpace, refSpace);
+    if (!rayPose) continue;
+
+    const m = rayPose.transform.matrix;
+    const origin = new THREE.Vector3(m[12], m[13], m[14]);
+    const dir    = new THREE.Vector3(-m[8], -m[9], -m[10]).normalize();
+
+    // Position and orient the ray line in world space
+    if (rayLine) {
+      rayLine.position.copy(origin);
+      rayLine.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 0, -1), dir
+      );
+    }
+
+    raycaster.set(origin, dir);
+    const hits = raycaster.intersectObjects(targets, false);
+
+    if (hits.length && hits[0].distance < 20) {
+      const hotspot = hits[0].object.parent;
+      hotspot.scale.setScalar(1.25);
+      hoveredBySource.set(src, hotspot);
+      // Shorten ray to hit point
+      rayLine?.geometry.setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, 0, -hits[0].distance),
+      ]);
+    } else {
+      rayLine?.geometry.setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, 0, -15),
+      ]);
+    }
+  }
 }
 
-// attachHotspotFire is no longer needed — hotspot detection is
-// merged into the selectstart handler inside enterVR().
-export function attachHotspotFire() { /* no-op, kept for API compatibility */ }
+export function attachHotspotFire() { /* no-op */ }
