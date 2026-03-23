@@ -142,7 +142,18 @@ function loadFace(sceneId, faceName, flipU, rotateDeg) {
             canvas.height = size;
             const ctx = canvas.getContext('2d');
 
-            if (rotateDeg) {
+            // Bake flip + rotation into the canvas so all faces use ClampToEdgeWrapping
+            // (RepeatWrapping on flipU faces was causing seam bleed at edges)
+            if (flipU && rotateDeg) {
+              ctx.translate(size / 2, size / 2);
+              ctx.rotate(rotateDeg * Math.PI / 180);
+              ctx.scale(-1, 1);
+              ctx.drawImage(tileCanvas, -size / 2, -size / 2);
+            } else if (flipU) {
+              ctx.translate(size, 0);
+              ctx.scale(-1, 1);
+              ctx.drawImage(tileCanvas, 0, 0);
+            } else if (rotateDeg) {
               ctx.translate(size / 2, size / 2);
               ctx.rotate(rotateDeg * Math.PI / 180);
               ctx.drawImage(tileCanvas, -size / 2, -size / 2);
@@ -156,11 +167,6 @@ function loadFace(sceneId, faceName, flipU, rotateDeg) {
             tex.generateMipmaps = false;
             tex.wrapS           = THREE.ClampToEdgeWrapping;
             tex.wrapT           = THREE.ClampToEdgeWrapping;
-            if (flipU) {
-              tex.wrapS    = THREE.RepeatWrapping;
-              tex.repeat.x = -1;
-              tex.offset.x =  1;
-            }
             resolve(tex);
           }
         };
